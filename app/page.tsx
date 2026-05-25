@@ -244,7 +244,7 @@ function isBinanceKlineSeries(data: unknown): data is BinanceKline[] {
   );
 }
 
-async function getBitcoinMarketChartData() {
+async function getBitcoinMarketChartData(): Promise<BitcoinMarketChartSnapshot> {
   const response = await fetch(BINANCE_FUTURES_KLINES_URL, {
     next: { revalidate: 300 },
   });
@@ -259,16 +259,19 @@ async function getBitcoinMarketChartData() {
     throw new Error("Binance Futures kline data is incomplete.");
   }
 
+  const prices: ChartPoint[] = data.map(
+    (kline) =>
+      [Number(kline[0]), parseBinanceNumber(kline[4]) ?? 0] as ChartPoint,
+  );
+  const totalVolumes: ChartPoint[] = data.map(
+    (kline) =>
+      [Number(kline[0]), parseBinanceNumber(kline[5]) ?? 0] as ChartPoint,
+  );
+
   return {
     data: {
-      prices: data.map(
-        (kline) =>
-          [Number(kline[0]), parseBinanceNumber(kline[4]) ?? 0] as ChartPoint,
-      ),
-      total_volumes: data.map(
-        (kline) =>
-          [Number(kline[0]), parseBinanceNumber(kline[5]) ?? 0] as ChartPoint,
-      ),
+      prices,
+      total_volumes: totalVolumes,
     },
     updatedAt: new Date(),
   };
