@@ -1,9 +1,12 @@
-import { Suspense } from "react";
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
 
 const BINANCE_SPOT_TICKER_URL =
-  "https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT";
+  "https://api.binance.com/api/v3/ticker/24hr?symbol=BTCUSDT";
 const BINANCE_SPOT_KLINES_URL =
   "https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1d&limit=90";
+const REFRESH_INTERVAL = 5 * 60 * 1000;
 
 const INDICATOR_TOOLTIPS = {
   ema9:
@@ -193,10 +196,8 @@ function getBinanceTickerPrice(data: BinanceTickerResponse) {
   return parseBinanceNumber(data.price) ?? parseBinanceNumber(data.lastPrice);
 }
 
-async function getBitcoinMarketData() {
-  const response = await fetch(BINANCE_SPOT_TICKER_URL, {
-    next: { revalidate: 300 },
-  });
+async function getBitcoinMarketData(signal?: AbortSignal) {
+  const response = await fetch(BINANCE_SPOT_TICKER_URL, { signal });
 
   if (!response.ok) {
     throw new Error("Binance Spot did not return a successful response.");
@@ -236,10 +237,10 @@ function isBinanceKlineSeries(data: unknown): data is BinanceKline[] {
   );
 }
 
-async function getBitcoinMarketChartData(): Promise<BitcoinMarketChartSnapshot> {
-  const response = await fetch(BINANCE_SPOT_KLINES_URL, {
-    next: { revalidate: 300 },
-  });
+async function getBitcoinMarketChartData(
+  signal?: AbortSignal,
+): Promise<BitcoinMarketChartSnapshot> {
+  const response = await fetch(BINANCE_SPOT_KLINES_URL, { signal });
 
   if (!response.ok) {
     throw new Error("Binance Spot kline data did not return successfully.");
@@ -817,7 +818,7 @@ function MarketSkeleton() {
   );
 }
 
-function MarketError() {
+function MarketError({ message }: { message?: string }) {
   return (
     <section className="w-full max-w-5xl rounded-lg border border-rose-400/25 bg-rose-950/30 p-6 text-rose-100 shadow-2xl shadow-black/30 sm:p-8">
       <p className="text-sm font-medium uppercase tracking-[0.2em] text-rose-300">
@@ -827,9 +828,14 @@ function MarketError() {
         BTC market snapshot could not load.
       </h1>
       <p className="mt-3 max-w-2xl text-sm leading-6 text-rose-100/75">
-        Binance Futures may be temporarily unavailable or rate limited. Refresh
-        the page to request the latest BTC market data again.
+        Binance Spot may be temporarily unavailable or rate limited. Refresh the
+        page to request the latest BTC market data again.
       </p>
+      {message ? (
+        <p className="mt-4 rounded-lg border border-rose-300/20 bg-rose-300/10 p-3 text-sm text-rose-100">
+          {message}
+        </p>
+      ) : null}
     </section>
   );
 }
@@ -913,7 +919,7 @@ function TechnicalSkeleton() {
   );
 }
 
-function TechnicalError() {
+function TechnicalError({ message }: { message?: string }) {
   return (
     <section className="w-full max-w-5xl rounded-lg border border-rose-400/25 bg-rose-950/30 p-6 text-rose-100 shadow-2xl shadow-black/30 sm:p-8">
       <p className="text-sm font-medium uppercase tracking-[0.2em] text-rose-300">
@@ -923,9 +929,14 @@ function TechnicalError() {
         BTC futures signals could not load.
       </h2>
       <p className="mt-3 max-w-2xl text-sm leading-6 text-rose-100/75">
-        Binance Futures kline data may be temporarily unavailable or rate limited.
+        Binance Spot kline data may be temporarily unavailable or rate limited.
         Refresh the page after a moment to rebuild the technical panel.
       </p>
+      {message ? (
+        <p className="mt-4 rounded-lg border border-rose-300/20 bg-rose-300/10 p-3 text-sm text-rose-100">
+          {message}
+        </p>
+      ) : null}
     </section>
   );
 }
@@ -945,7 +956,7 @@ function TrendChartSkeleton() {
   );
 }
 
-function TrendChartError() {
+function TrendChartError({ message }: { message?: string }) {
   return (
     <section className="w-full max-w-5xl rounded-lg border border-rose-400/25 bg-rose-950/30 p-6 text-rose-100 shadow-2xl shadow-black/30 sm:p-8">
       <p className="text-sm font-medium uppercase tracking-[0.2em] text-rose-300">
@@ -955,9 +966,14 @@ function TrendChartError() {
         BTC trend chart could not load.
       </h2>
       <p className="mt-3 max-w-2xl text-sm leading-6 text-rose-100/75">
-        Binance Futures kline data may be temporarily unavailable or rate limited.
+        Binance Spot kline data may be temporarily unavailable or rate limited.
         Refresh the page after a moment to rebuild the chart.
       </p>
+      {message ? (
+        <p className="mt-4 rounded-lg border border-rose-300/20 bg-rose-300/10 p-3 text-sm text-rose-100">
+          {message}
+        </p>
+      ) : null}
     </section>
   );
 }
@@ -986,22 +1002,15 @@ function TrendLegend({ series }: { series: ChartSeries[] }) {
   );
 }
 
-async function BitcoinTrendChartModule() {
-  let chartSnapshot: BitcoinMarketChartSnapshot;
-  let signals: TechnicalSignals;
-  let supportResistanceSignals: SupportResistanceSignals;
-
-  try {
-    chartSnapshot = await getBitcoinMarketChartData();
-    signals = calculateTechnicalSignals(chartSnapshot.data);
-    supportResistanceSignals = buildSupportResistanceSignals(
-      chartSnapshot.data,
-      signals,
-    );
-  } catch {
-    return <TrendChartError />;
-  }
-
+function BitcoinTrendChartModule({
+  chartSnapshot,
+  signals,
+  supportResistanceSignals,
+}: {
+  chartSnapshot: BitcoinMarketChartSnapshot;
+  signals: TechnicalSignals;
+  supportResistanceSignals: SupportResistanceSignals;
+}) {
   const prices = chartSnapshot.data.prices.map((point) => point[1]).slice(-90);
   const pricePoints = chartSnapshot.data.prices.slice(-90);
   const width = 920;
@@ -1123,6 +1132,9 @@ async function BitcoinTrendChartModule() {
             </h2>
             <p className="mt-3 text-sm text-zinc-400">
               Price, EMA9, MA20, MA50, and nearest deterministic S/R zones.
+            </p>
+            <p className="mt-2 text-sm text-zinc-500">
+              Data source: Binance Spot BTCUSDT
             </p>
             <p className="mt-3 text-xs font-medium tracking-[0.16em] text-zinc-500">
               {formatUpdatedMeta(chartSnapshot.updatedAt)}
@@ -1578,23 +1590,15 @@ function SupportResistanceSection({
   );
 }
 
-async function BitcoinTechnicalModule() {
-  let signals: TechnicalSignals;
-  let supportResistanceSignals: SupportResistanceSignals;
-  let chartUpdatedAt: Date;
-
-  try {
-    const chartSnapshot = await getBitcoinMarketChartData();
-    chartUpdatedAt = chartSnapshot.updatedAt;
-    signals = calculateTechnicalSignals(chartSnapshot.data);
-    supportResistanceSignals = buildSupportResistanceSignals(
-      chartSnapshot.data,
-      signals,
-    );
-  } catch {
-    return <TechnicalError />;
-  }
-
+function BitcoinTechnicalModule({
+  chartUpdatedAt,
+  signals,
+  supportResistanceSignals,
+}: {
+  chartUpdatedAt: Date;
+  signals: TechnicalSignals;
+  supportResistanceSignals: SupportResistanceSignals;
+}) {
   const indicatorMetrics: IndicatorMetric[] = [
     {
       label: "EMA9",
@@ -1670,8 +1674,10 @@ async function BitcoinTechnicalModule() {
               BTC Contract Bias
             </h2>
             <p className="mt-3 text-sm text-zinc-400">
-              Daily Binance Futures kline data, refreshed through the server
-              cache.
+              Daily Binance Spot kline data, refreshed every 5 minutes.
+            </p>
+            <p className="mt-2 text-sm text-zinc-500">
+              Data source: Binance Spot BTCUSDT
             </p>
             <p className="mt-3 text-xs font-medium tracking-[0.16em] text-zinc-500">
               {formatUpdatedMeta(chartUpdatedAt)}
@@ -1707,15 +1713,7 @@ async function BitcoinTechnicalModule() {
   );
 }
 
-async function BitcoinMarketModule() {
-  let data: BitcoinMarketSnapshot;
-
-  try {
-    data = await getBitcoinMarketData();
-  } catch {
-    return <MarketError />;
-  }
-
+function BitcoinMarketModule({ data }: { data: BitcoinMarketSnapshot }) {
   const changeTone = data.usd_24h_change >= 0 ? "positive" : "negative";
   const metrics: MarketMetric[] = [
     {
@@ -1752,7 +1750,10 @@ async function BitcoinMarketModule() {
               {formatCurrency(data.usd, { maximumFractionDigits: 2 })}
             </h1>
             <p className="mt-3 text-sm text-zinc-400">
-              Live BTCUSDT futures price from Binance Futures 24h ticker.
+              Live BTCUSDT spot price from Binance 24h ticker.
+            </p>
+            <p className="mt-2 text-sm text-zinc-500">
+              Data source: Binance Spot BTCUSDT
             </p>
             <p className="mt-3 text-xs font-medium tracking-[0.16em] text-zinc-500">
               {formatUpdatedMeta(data.updatedAt)}
@@ -1779,17 +1780,101 @@ async function BitcoinMarketModule() {
 }
 
 export default function Home() {
+  const [marketData, setMarketData] = useState<BitcoinMarketSnapshot | null>(
+    null,
+  );
+  const [chartSnapshot, setChartSnapshot] =
+    useState<BitcoinMarketChartSnapshot | null>(null);
+  const [signals, setSignals] = useState<TechnicalSignals | null>(null);
+  const [supportResistanceSignals, setSupportResistanceSignals] =
+    useState<SupportResistanceSignals | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  const refreshBinanceData = useCallback(async (signal?: AbortSignal) => {
+    try {
+      setErrorMessage(null);
+
+      const [nextMarketData, nextChartSnapshot] = await Promise.all([
+        getBitcoinMarketData(signal),
+        getBitcoinMarketChartData(signal),
+      ]);
+      const nextSignals = calculateTechnicalSignals(nextChartSnapshot.data);
+      const nextSupportResistanceSignals = buildSupportResistanceSignals(
+        nextChartSnapshot.data,
+        nextSignals,
+      );
+
+      setMarketData(nextMarketData);
+      setChartSnapshot(nextChartSnapshot);
+      setSignals(nextSignals);
+      setSupportResistanceSignals(nextSupportResistanceSignals);
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") {
+        return;
+      }
+
+      setMarketData(null);
+      setChartSnapshot(null);
+      setSignals(null);
+      setSupportResistanceSignals(null);
+      setErrorMessage(
+        error instanceof Error ? error.message : "Binance data fetch failed.",
+      );
+    } finally {
+      if (!signal?.aborted) {
+        setIsLoading(false);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    refreshBinanceData(controller.signal);
+    const intervalId = window.setInterval(() => {
+      refreshBinanceData();
+    }, REFRESH_INTERVAL);
+
+    return () => {
+      controller.abort();
+      window.clearInterval(intervalId);
+    };
+  }, [refreshBinanceData]);
+
   return (
     <main className="flex min-h-screen flex-col items-center justify-center gap-6 bg-black px-5 py-10 font-sans text-zinc-50 sm:px-8">
-      <Suspense fallback={<MarketSkeleton />}>
-        <BitcoinMarketModule />
-      </Suspense>
-      <Suspense fallback={<TrendChartSkeleton />}>
-        <BitcoinTrendChartModule />
-      </Suspense>
-      <Suspense fallback={<TechnicalSkeleton />}>
-        <BitcoinTechnicalModule />
-      </Suspense>
+      {isLoading ? <MarketSkeleton /> : null}
+      {!isLoading && errorMessage ? <MarketError message={errorMessage} /> : null}
+      {!isLoading && marketData ? <BitcoinMarketModule data={marketData} /> : null}
+      {isLoading ? <TrendChartSkeleton /> : null}
+      {!isLoading && errorMessage ? (
+        <TrendChartError message={errorMessage} />
+      ) : null}
+      {!isLoading &&
+      chartSnapshot &&
+      signals &&
+      supportResistanceSignals ? (
+        <BitcoinTrendChartModule
+          chartSnapshot={chartSnapshot}
+          signals={signals}
+          supportResistanceSignals={supportResistanceSignals}
+        />
+      ) : null}
+      {isLoading ? <TechnicalSkeleton /> : null}
+      {!isLoading && errorMessage ? (
+        <TechnicalError message={errorMessage} />
+      ) : null}
+      {!isLoading &&
+      chartSnapshot &&
+      signals &&
+      supportResistanceSignals ? (
+        <BitcoinTechnicalModule
+          chartUpdatedAt={chartSnapshot.updatedAt}
+          signals={signals}
+          supportResistanceSignals={supportResistanceSignals}
+        />
+      ) : null}
     </main>
   );
 }
