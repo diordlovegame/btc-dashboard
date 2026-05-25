@@ -1,9 +1,9 @@
 import { Suspense } from "react";
 
-const BINANCE_FUTURES_TICKER_URL =
-  "https://fapi.binance.com/fapi/v1/ticker/24hr?symbol=BTCUSDT";
-const BINANCE_FUTURES_KLINES_URL =
-  "https://fapi.binance.com/fapi/v1/klines?symbol=BTCUSDT&interval=1d&limit=90";
+const BINANCE_SPOT_TICKER_URL =
+  "https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT";
+const BINANCE_SPOT_KLINES_URL =
+  "https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1d&limit=90";
 
 const INDICATOR_TOOLTIPS = {
   ema9:
@@ -32,6 +32,7 @@ type BitcoinMarketData = {
 };
 
 type BinanceTickerResponse = {
+  price?: string;
   lastPrice?: string;
   priceChangePercent?: string;
   quoteVolume?: string;
@@ -188,37 +189,28 @@ function parseBinanceNumber(value: string | undefined) {
   return Number.isFinite(parsedValue) ? parsedValue : null;
 }
 
-function isBinanceTickerData(
-  data: BinanceTickerResponse,
-): data is Required<
-  Pick<BinanceTickerResponse, "lastPrice" | "priceChangePercent">
-> &
-  BinanceTickerResponse {
-  return (
-    parseBinanceNumber(data.lastPrice) !== null &&
-    parseBinanceNumber(data.priceChangePercent) !== null &&
-    (parseBinanceNumber(data.quoteVolume) !== null ||
-      parseBinanceNumber(data.volume) !== null)
-  );
+function getBinanceTickerPrice(data: BinanceTickerResponse) {
+  return parseBinanceNumber(data.price) ?? parseBinanceNumber(data.lastPrice);
 }
 
 async function getBitcoinMarketData() {
-  const response = await fetch(BINANCE_FUTURES_TICKER_URL, {
+  const response = await fetch(BINANCE_SPOT_TICKER_URL, {
     next: { revalidate: 300 },
   });
 
   if (!response.ok) {
-    throw new Error("Binance Futures did not return a successful response.");
+    throw new Error("Binance Spot did not return a successful response.");
   }
 
   const data = (await response.json()) as BinanceTickerResponse;
+  const price = getBinanceTickerPrice(data);
 
-  if (!isBinanceTickerData(data)) {
-    throw new Error("Binance Futures returned an unexpected response shape.");
+  if (price === null) {
+    throw new Error("Binance Spot returned an unexpected response shape.");
   }
 
   return {
-    usd: parseBinanceNumber(data.lastPrice) ?? 0,
+    usd: price,
     usd_24h_change: parseBinanceNumber(data.priceChangePercent) ?? 0,
     usd_24h_vol:
       parseBinanceNumber(data.quoteVolume) ??
@@ -245,18 +237,18 @@ function isBinanceKlineSeries(data: unknown): data is BinanceKline[] {
 }
 
 async function getBitcoinMarketChartData(): Promise<BitcoinMarketChartSnapshot> {
-  const response = await fetch(BINANCE_FUTURES_KLINES_URL, {
+  const response = await fetch(BINANCE_SPOT_KLINES_URL, {
     next: { revalidate: 300 },
   });
 
   if (!response.ok) {
-    throw new Error("Binance Futures kline data did not return successfully.");
+    throw new Error("Binance Spot kline data did not return successfully.");
   }
 
   const data = (await response.json()) as unknown;
 
   if (!isBinanceKlineSeries(data) || data.length < 60) {
-    throw new Error("Binance Futures kline data is incomplete.");
+    throw new Error("Binance Spot kline data is incomplete.");
   }
 
   const prices: ChartPoint[] = data.map(
