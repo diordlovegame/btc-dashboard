@@ -51,7 +51,7 @@ type BitcoinMarketSnapshot = BitcoinMarketData & {
 type ChartPoint = [number, number];
 
 type BinanceKline = [
-  number,
+  number | string,
   string,
   string,
   string,
@@ -235,11 +235,11 @@ function isBinanceKlineSeries(data: unknown): data is BinanceKline[] {
       (kline) =>
         Array.isArray(kline) &&
         kline.length >= 8 &&
-        typeof kline[0] === "number" &&
+        (typeof kline[0] === "number" || typeof kline[0] === "string") &&
         typeof kline[4] === "string" &&
-        typeof kline[7] === "string" &&
+        typeof kline[5] === "string" &&
         parseBinanceNumber(kline[4]) !== null &&
-        parseBinanceNumber(kline[7]) !== null,
+        parseBinanceNumber(kline[5]) !== null,
     )
   );
 }
@@ -261,14 +261,14 @@ async function getBitcoinMarketChartData() {
 
   return {
     data: {
-      prices: data.map((kline) => [
-        kline[0],
-        parseBinanceNumber(kline[4]) ?? 0,
-      ]),
-      total_volumes: data.map((kline) => [
-        kline[0],
-        parseBinanceNumber(kline[7]) ?? 0,
-      ]),
+      prices: data.map(
+        (kline) =>
+          [Number(kline[0]), parseBinanceNumber(kline[4]) ?? 0] as ChartPoint,
+      ),
+      total_volumes: data.map(
+        (kline) =>
+          [Number(kline[0]), parseBinanceNumber(kline[5]) ?? 0] as ChartPoint,
+      ),
     },
     updatedAt: new Date(),
   };
